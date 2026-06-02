@@ -30,7 +30,7 @@ Bid
 
 --
 
-**BUY Mkt**
+### **BUY Mkt**
 发送`BUY Mkt`，成交价 $ 18.25
 吃掉 Ask的18.25挂单，如果挂单1张，成交后：
 ```text
@@ -39,7 +39,7 @@ Bid
 ```
 --
 
-**SELL Mkt**
+### **SELL Mkt**
 发送`SELL Mkt`，成交价 $ 18.00
 吃掉 Bid 的18.00的挂单，如果挂单1张，成交后：
 ```text
@@ -49,7 +49,8 @@ Bid
 
 --
 
-**BUY Ask**
+### **BUY Ask** - 防止BUY Mkt滑单
+
 限价单，生成BUY的单子，限制是 Best Ask？
 BUY LIMIT 18.25
 因为有人挂着18.25的Ask，立刻会成交
@@ -64,7 +65,7 @@ BUY LIMIT 18.25
 
 
 
-**SELL Bid**
+### **SELL Bid** - 防止SELL Mkt滑单
 限价单，生成SELL的单子，限制是Best Bid？
 SELL LIMIT 18.00
 
@@ -73,13 +74,15 @@ SELL LIMIT 18.00
 
 ---
 
-**BUY Bid**
+### **BUY Bid**
+Bid本来就是BUY这一边的，怎么还用 BUY Bid做限制呢？
 限价单，生成BUY的单子，限制是 Best Bid
 BUY LIMIT 18.00
 挂单等待
 你BUY还要用Bid做限制~
 
-**SELL Ask**
+### **SELL Ask**
+Ask本来就是SELL这一边的，怎么还用 SELL Ask做限制呢？
 限价单，生成SELL的单子，限制是 Best Ask
 SELL LIMIT 18.25
 挂单等待
@@ -95,5 +98,6 @@ SELL LIMIT 18.25
 |**Buy Bid**|Buy Limit @ Best Bid|
 |**Sell Ask**|Sell Limit @ Best Ask|
 
+这样以整理是不是就清楚多了呢？
 
-zuoyi zhexie 
+---
