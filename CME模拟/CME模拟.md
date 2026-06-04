@@ -643,3 +643,185 @@ Price Improvement的目的是为了：订单保护
 
 真正严格的说法应该是：
 - **<font color=red>交易所保护的是已存在订单簿的价格优先权和时间优先权。</font>**
+
+---
+
+# 进一步剖析CME
+
+## Positions 和 Orders 的appearance
+
+**Positions**的appearance
+
+|SYMBOL|CONTRACT|MONTH|STRIKE|C/P|POSITION|BUYS|SELLS|AVERAGE PX|UNREALIZED P/L|REALIZED P/L|ACTIONS|
+|---|---|---|---|---|---|---|---|---|---|---|---|
+|ESM6|E-mini S&P 500|Jun|-|-|Long 1|6|5|7590.50|-162.50|-200.00|`TRADE`|
+
+对于POSITIONS的表格，请记住：
+- 头寸表格，会显示出来 **`LONG X`** 还有 **`SHORT X`**，这样的描述
+- 那么这个**X**是怎么来的呢？是 **BUYS** 和 **SELLS** 之间的**净值，net value**。
+- CME的 POSITION TABLE 中，统计了交易日当天，所有的 **BUYS** 和 **SELLS**,然后会聚焦在净头寸上。
+- POSITION TABLE的三种状态：
+    - LONG X：多头状态
+    - SHORT X：空头状态
+    - 0：BUYS数量等于SELLS数量
+
+> CME显示的POSITION，一定是**NET POSITION**，即**净头寸**！
+
+**Orders** 的appearance
+
+| SIDE | SYMBOL | MONTH | STRIKE | C/P | QTY | LEAVES | TYPE | FILL PX | LMT | STOP PX | STATUS | ACTIONS |
+|---|-----|-----|-----|---|---|---|---|---|---|---|---|---|
+| Buy  | ESM6 | Jun | - | - | 1 | 0 | MKT | 7590.5  | -       | - | Filled | |
+| Buy  | ESM6 | Jun | - | - | 2 | 0 | LMT | 7610.75 | 7610.75 | - | Filled | |
+| Buy  | ESM6 | Jun | - | - | 1 | 0 | MKT | 7617    | -       | - | Filled | |
+| Sell | ESM6 | Jun | - | - | 2 | 0 | MKT | 7612.75 | -       | - | Filled | |
+| Sell | ESM6 | Jun | - | - | 3 | 0 | LMT | 7612    | 7612    | - | Filled | |
+| Buy  | ESM6 | Jun | - | - | 2 | 0 | LMT | 7613.5  | 7613.5  | - | Filled | |
+
+对于 ORDERS的表格，请记住：
+- 记录所有的oders，包括order的所有详细信息。
+- 当天更早的 orders 在下面，最新的 orders 在上面。
+- Orders的TYPE包括：**MKT**、**LMT**
+- **FILL PX**就是：成交价格。订单成交的英文是“Orders filled”。
+
+## 加权计算头寸的 **AVERAGE PX**
+
+在学习“多开空平@买-空开多平@卖”这个principle的时候，就存在这种问题。如果我们把多头和空头细致分开的话，实际操作中就会遇到：
+- 我某种头寸，之前是几个价格都存在的，那么我平掉的时候，是平掉哪个头寸呢？这个问题比较关键，因为这可能会影响 Realized P/L的计算。你平掉的价格是同一个，那么究竟平掉哪个肯定对PL有影响。
+- 实际上，系统是采用均价的方式来计算某个SIDE的头寸的“均价”。你动它之前，它是均价的状态。
+
+Actually，对于区分空头和多头的算法来说：
+
+- 两个SIDE的头寸不会互相干扰，我们可以只拿一个方向来说，比如A方向头寸
+- A方向头寸，会因为同样方向头寸的新“开”，而变换均价，就好像往盐水里面加另一个浓度的盐水一样。
+- 新开的A方向头寸，会把A方向头寸的价格调整成，加权价格
+- 平掉的A方向头寸，成本就是“平”这个操作之前的“加权平均价”。“平掉”A方向头寸一些，不会影响现存库存A方向头寸的均价。剩余的没平掉的A方向头寸，价格还是平之前的加权价格。
+
+Then，对于CME的BUY-SELL算法来说，情况稍微有那么一点点复杂，但是还好 though。
+我们先假设，交易日今天没有隔夜的头寸。This is a new start。
+
+假定当前的 POSITION 情况是，在这之前并没有操作：
+
+|SYMBOL|POSITION|BUYS|SELLS|AVERAGE PX|Unrealized PL|realized PL|
+|---|---|---|---|---|---|---|
+|MESM6|Long 3|3|0|7539.75|变动值|0.00|
+
+你这个时候
+- 如果 SELL 3手，那么就直接形成 realized PL了。
+- 如果SELL 2手（2手<3手），那么剩余的POSITION就是 LONG 1 @ 7539.75，价格还是7539.75。
+- 如果SELL 4手（4手>3手）：
+    - 比如我们现在 SELL Mkt，QTY=4，FILL PX=7541.50
+
+那么POSITION就会变成：
+
+|POSITION|BUYS|SELLS|AVERAGE PX|UNREALIZED P/L|REALIZED P/L|ACTIONS|
+|---|---|---|---|---|---|---|
+|Short 1|3|4|7541.50|变动|26.25|`TRADE` **FLATTEN**|
+
+我们看具体数值：
+- 26.25怎么来的呢？(7541.50-7539.75)x3手x5美元 = 26.25美元
+- 新的POSITION表格里，为什么`AVERAGE PX`的价格是 7541.50呢？还不是之前的LONG 3已经都卖出沽清了，所以只单独剩余一个 SHORT 1了。那么这个short1就是当初SELL执行的时候的价格7541.50。
+
+我们还可以把CME中的情况进一步推广来看，选取一个瞬间，假设现在POSITION统计中是 LONG L1手（short的情况页可以以此类推，而且CME的逻辑是不可能有LONG和SHORT同时存在的）：
+- LONG L1手 @价格LP1
+    - LP1也是之前的操作遗留下来的
+- 接下来的操作如果继续 BUY L2手@价格LP2
+    - 那么新的POSITION表格就会变成：LONG (L1+L2)手@价格加权计算
+- 接下来的操作如果是 SELL，即SELL S1手@SP1
+    - 如果L1=S1，那么POSITION就消失了，unrealized PL也就归零了。
+    - 如果L1>S1，那么剩余的POSITION还是：LONG (L1-S1)手@**LP1**
+    - 如果L1<S1，那么就是LONG都被SHORT给平了，SHORT还有富裕，最终剩余的POSITION就是：SHORT (S1-L1)@**SP1**。
+    - 嗯对，就这样事儿的。
+
+## 隔夜头寸的玩法
+
+CME官方的simulator是不考虑隔夜头寸的，隔夜头寸给你自动清零了。但是真实的CME、还有 NinjaTrader、Tradovate肯定是要考虑隔夜持仓的。
+
+
+
+
+
+
+
+---
+
+
+# CME界面
+
+我们现在来看，CME的结算页面，最上面有的：
+
+|字段|含义|
+|---|---|
+|**Practice Funds**|当前账户权益（Equity）|
+|**Profit/Loss**|当前总浮动+已实现盈亏（当前持仓相关）|
+|**Margin**|当前持仓占用保证金|
+|**Available**|可用于新开仓的资金|
+
+啥意思？是不是不懂？没关系，我们看两张图就能明白了。合约依旧是`MESM6`合约。
+
+**同一个交易日**，已经发生的交易是这样的：
+1. BUY 3
+2. SELL 4
+3. BUY 1
+这些order都执行完了，你再去看 **POSITION** Table，就会看到显示：BUYS 4， SELLS 4，net positoin肯定是零。然后 **Realized P/L**是 33.75 $，这个P/L是上面BUYS4+SELLS4实现的。
+
+BUYS 4-SELLS 4结束后，此时的**Balance**显示是：
+- **Practical Funds**：99,296.25 $
+- **PROFIT/LOSS**：33.75 $
+- **MARGIN**：0.00 $
+- **AVAIBABLE**：99,296.25 $
+其中：
+- **REALIZED P/L** = 33.75$
+- **UNREALIZED P/L** =0.00 $
+- 总的 **PROFIT/LOSS** = **UNREALIZED P/L** **+** **REALIZED P/L**
+
+然后，现在我们在同一个交易日，更进一步，再下一单去BUY:
+**BUY 2手@ 7537.50 $**
+POSITION 也会变成：
+**Long 2, BUYS=6, SELLS=4, AVERAGE PX=7537.50**
+
+所有的内容细节的你能从下面图片中看到：
+![](CME-1.jpg)
+
+然后就会呈现：
+
+**MARGIN**：这个就是 **initial margin**，表示的是一个头寸所要求的保证金。此处有2个头寸，MARGIN=2x`2694$` = `5294.00$`
+
+> 当price ladder中的LAST 成交价 = `7539.50$`
+
+**REALIZED P/L**：和之前的BUYS-SELLS相关，因此这个数值还是 `33.75$`。
+
+**UNREALIZED PĹ**：是f(现在成交价)，是`LAST成交价`的函数。此处等于 (7539.50-7537.50)X2X5=`20$`
+
+**PROFIT/LOSS** = **REALIZED P/L** + **UNREALIZED P/L** = `20$` + `33.75$` = `53.75$`
+
+**AVAILABLE** = **PRACTICE FUNDS** - **5294.00** = 99,316.25 - 5,294.00 = `94,022.25$`
+
+那么，问题就来了，PRACTICE FUNDS是怎么来的呢？
+这里，**PRACTICE FUNDS** = 之前值 + **UNREALIZABLE P/L** = 99,296.25 + 20.00 = `99,316.25$`，也就是说，这个concept是included **Unrealized P/L**的。
+
+那么我们归纳总结如下：
+
+|concepts|解释|NOTES|
+|---|---|---|
+|**MARGIN**|和当前 Net Position有关，是 `f(净头寸)`|**f**(net position)，净头寸的函数|
+|**REALIZED P/L**|已经BUY-SELL，是已经交易的PnL，不随LAST变化|**f**(成交记录records)|
+|**UNREALIZED P/L**|还存在的头寸，由 average px和LAST的价差带来|**f**(当前头寸, average px, LAST)；当前头寸情况，头寸计价成本，LAST成交价的函数|
+|**PROFIT/LOSS**|**`PROFIT/LOSS`**=**`UNREALIZED P/L`**+**`REALIZED P/L`**|包含已经实现的和未实现的|
+|**AVAILABLE**|你的原始资金，计入 **`REALIZED P/L`** 和 **`UNREALIZED P/L`** 之后，减去 **`MARGIN`**，剩余的可掉用的钱|**`AVAILABLE`**=**`PRACTICE FUNDS`**-**`MARGIN`**|
+|**PRACTICE FUND**|？是不是客户权益 equity？||
+
+
+同样地，过一会儿变成了这样：
+![](./CME-2.jpg)
+你可以自己演算一遍看看。
+不仅仅可以和BUYS 2手之前的结果比较，还可以和上面一张图进行比较：
+- 上图 LAST = 7539.50；PRACTICE FUNDS = 99,316.25$
+- 本图 LAST = 7541.75；PRACTICE FUNDS = 99,338.75$
+
+从上图到本图的过程中，只有LAST成交价发生了变化。 `BUYS 2 @ 7537.50$`并没有发生变化，thus we have：
+(99338.75-99316.25) = 2x5x(7541.75-7539.50) = 22.5$
+perfect!
+
+---
+
